@@ -36,6 +36,9 @@ def flatten(listoflist):
 def union(c):
 	return set(flatten(c))
 
+def reprState(s):
+	return ",".join(map(str,s))
+
 class NFA(FA):
 
 	def __init__(self, transition, initial, finals):
@@ -44,7 +47,7 @@ class NFA(FA):
 		self.initial = initial
 		self.finals = finals
 
-	def isFinal(self, states):
+	def anyFinal(self, states):
 		return any(state in self.finals for state in states)
 
 	def accepts(self, s, currentStates=None):
@@ -54,14 +57,40 @@ class NFA(FA):
 		if len(currentStates) == 0:
 			return False
 		if s == "":
-			return self.isFinal(currentStates)
+			return self.anyFinal(currentStates)
 		else:
 			a, w = s[0], s[1:] # s = aw
 			newStates = union([self.transition[state].get(a, []) for state in currentStates])
 			return self.accepts(w, newStates)
 
-	def determinize(self):
-		raise NotImplemented
+	def toDFA(self):
+		d = {}
+		# for each transition: add those in the lambda closure..
+		# do like a BFS (avoid potentially unreachable states)
+		initial = (self.initial,)
+		seen = set([initial])
+		queue = deque([initial])
+		while queue:
+			currentStates = queue.popleft()
+			d[currentStates] = {}
+			next = {}
+			for state in currentStates:
+				T = self.transition[state]
+				for letter in T:
+					if letter not in next:
+						next[letter] = set()
+					next[letter] |= set(T[letter])
+			for letter in next:
+				nextState = tuple(next[letter])
+				d[currentStates][letter] = nextState
+				if nextState not in seen:
+					queue.append(nextState)
+					seen.add(nextState)
+		finals = []
+		for states in d:
+			if self.anyFinal(states):
+				finals.append(states)
+		return DFA(d, initial, finals)
 
 class NFAlambda(FA):
 
@@ -71,7 +100,7 @@ class NFAlambda(FA):
 		self.initial = initial
 		self.finals = finals
 
-	def isFinal(self, states):
+	def anyFinal(self, states):
 		return any(state in self.finals for state in states)
 
 	def accepts(self, s, currentStates=None):
@@ -84,7 +113,7 @@ class NFAlambda(FA):
 		stateLambdaClosure = union([self.lambdaClosure(state) for state in currentStates])
 
 		if s == "":
-			return self.isFinal(stateLambdaClosure)
+			return self.anyFinal(stateLambdaClosure)
 		else:
 			a, w = s[0], s[1:] # s = aw
 			newStates = union([self.transition[state].get(a, []) for state in stateLambdaClosure])
@@ -108,23 +137,45 @@ class NFAlambda(FA):
 		return connectedComponent
 
 	def toNFA(self):
-		raise NotImplemented
+		d = {}
+		# for each transition: add those in the lambda closure..
+		for state in self.nodes:
+			stateLambdaClosure = self.lambdaClosure(state)
+			reached = {}
+			for extstate in stateLambdaClosure:
+				for letter in self.transition[extstate]:
+					if letter != "λ":
+						if letter not in reached:
+							reached[letter] = []
+						reached[letter] += self.transition[extstate][letter]
+			for letter in reached:
+				reached[letter] = self.lambdaClosureOfSet(reached[letter])
+			d[state] = reached
+
+		finals = self.finals[:]
+
+		if self.anyFinal(self.lambdaClosure(self.initial)):
+			finals.append(self.initial)
+
+		return NFA(d, self.initial, finals)
 
 d = {
-	0: {'0' : [0], 'λ': [1]},
-	1: {'1' : [1], 'λ': [2]},
-	2: {'2' : [2]}
+	0: {'0' : [0, 1], '1': [0, 2]},
+	1: {'0' : [3]},
+	2: {'1' : [3]},
+	3: {'0' : [3], '1' : [3]}
 }
 
-a = NFAlambda(d, 0, [2]) #0*1*2*
+a = NFA(d, 0, [3]) # (0|1)*(00|11)(0|1)*, i.e. string with 00 or 11
+b = a.toDFA();
 
-alphabet = "012"
+alphabet = "01"
 
-MAX_LENGTH = 4
+MAX_LENGTH = 3
 print "Accepted strings up to length %d:" % MAX_LENGTH
 if a.accepts(""):
  	print "λ"
-for length in xrange(1, 5):
+for length in xrange(1, MAX_LENGTH+1):
 	for string in product(alphabet, repeat=length):
 		s = ''.join(string)
 		if a.accepts(s):
