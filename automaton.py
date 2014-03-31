@@ -171,15 +171,14 @@ b = a.toDFA();
 
 alphabet = "01"
 
-MAX_LENGTH = 3
+MAX_LENGTH = 5
 print "Accepted strings up to length %d:" % MAX_LENGTH
-if a.accepts(""):
- 	print "λ"
-for length in xrange(1, MAX_LENGTH+1):
+for length in xrange(MAX_LENGTH+1):
 	for string in product(alphabet, repeat=length):
 		s = ''.join(string)
-		if a.accepts(s):
-			print s
+		assert(a.accepts(s) == b.accepts(s))
+		if b.accepts(s):
+			print s if len(s) > 0 else "λ"
 
 
 
