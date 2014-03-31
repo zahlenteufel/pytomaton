@@ -27,17 +27,56 @@ class DFA(FA):
 			a, w = s[0], s[1:] # s = aw
 			return a in self.transition[currentState] and self.accepts(w, self.transition[currentState][a])		
 
+	def split(self, B, S, a):
+		B1 = [state for state in B if self.transition[state].get(a, None) in S]
+		return B1, B-B1
+
 	def minimize(self):
-		raise NotImplemented
+		# first consider only the states reachable from the start (BFS):
+		reachables = set()
+		reachables.add(self.initial)
+		queue = deque([self.initial])
+		while queue:
+			currentState = queue.popleft()
+			for letter in self.transition[currentState]:
+				neighbour = self.transition[currentState][letter]
+				if neighbour not in reachables:
+					queue.append(neighbour)
+					reachables.add(neighbour)
+		
+		# groupIndex = dict((state, int(self.isFinal(state)) for state in reachables)
+		F = set(state in reachables if self.isFinal(state))
+		notF = reachables - F
+		if len(F) < len(notF): # |F| < |Q-F|
+			P = [notF, F]
+		else:
+			P = [F, notF]
+		L = P[1]
+
+		alphabet = [letter for self.transition[state] for state in reachables]
+		
+		while len(L) > 0:
+			S = L.pop()
+			for a in alphabet:
+				for B in P:
+					B1, B2 = self.split(B, S, a)
+					P.remove(B)
+					P.append(B1)
+					P.append(B2)
+					if len(B1) < len(B2):
+						L.append(B1)
+					else:
+						L.append(B2)
+
+		# P has the partition (new elements), we have to translate 
+		# the new indexes, the transitions, initial and finals
+
 
 def flatten(listoflist):
 	return [item for sublist in listoflist for item in sublist]
 
 def union(c):
 	return set(flatten(c))
-
-def reprState(s):
-	return ",".join(map(str,s))
 
 class NFA(FA):
 
