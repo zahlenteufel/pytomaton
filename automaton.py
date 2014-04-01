@@ -7,9 +7,18 @@ from collections import deque
 class FA:
 	pass
 
+def getSublistNumber(listoflists):
+	d = dict()
+	for i in xrange(len(listoflists)):
+		for elem in listoflists[i]:
+			d[elem] = i
+	return d
+
+
 class DFA(FA):
 
 	def __init__(self, transition, initial, finals):
+		#TODO: check correctness of the the input
 		self.nodes = transition.keys()
 		self.transition = transition
 		self.initial = initial
@@ -27,9 +36,18 @@ class DFA(FA):
 			a, w = s[0], s[1:] # s = aw
 			return a in self.transition[currentState] and self.accepts(w, self.transition[currentState][a])		
 
-	def split(self, B, S, a):
-		B1 = [state for state in B if self.transition[state].get(a, None) in S]
-		return B1, B-B1
+	def split(self, X, indexOf, a):
+		# print X, indexOf, a
+		preimg = {}
+		# print indexOf
+		for state in X:
+			# print state, "-",a,"->", self.transition[state].get(a, None)
+			index = indexOf.get(self.transition[state].get(a, None), None)
+			if index not in preimg:
+				preimg[index] = set()
+			preimg[index].add(state)
+		# print preimg
+		return preimg.values()
 
 	def minimize(self):
 		# first consider only the states reachable from the start (BFS):
@@ -44,33 +62,53 @@ class DFA(FA):
 					queue.append(neighbour)
 					reachables.add(neighbour)
 		
-		# groupIndex = dict((state, int(self.isFinal(state)) for state in reachables)
-		F = set(state in reachables if self.isFinal(state))
-		notF = reachables - F
-		if len(F) < len(notF): # |F| < |Q-F|
-			P = [notF, F]
-		else:
-			P = [F, notF]
-		L = P[1]
+		F = [state for state in reachables if self.isFinal(state)]
+		notF = [state for state in reachables if state not in F]
+		P = [notF, F]
 
-		alphabet = [letter for self.transition[state] for state in reachables]
-		
-		while len(L) > 0:
-			S = L.pop()
-			for a in alphabet:
-				for B in P:
-					B1, B2 = self.split(B, S, a)
-					P.remove(B)
-					P.append(B1)
-					P.append(B2)
-					if len(B1) < len(B2):
-						L.append(B1)
-					else:
-						L.append(B2)
+		alphabet = set([letter for state in reachables for letter in self.transition[state]])
+		print "alphabet:", alphabet
+		anySplit = True
+		i = 0
+		while anySplit:
+			indexOf = getSublistNumber(P)
+			# print indexOf
+			# print i, ".", P
+			i += 1
+			P2 = []
+			anySplit = False
+			while P:
+				X = P.pop()
+				if len(X) <= 1:
+					P2.append(X)
+					continue
+				for letter in alphabet:
+					Xs = self.split(X, indexOf, letter)
+					if len(Xs) > 1:
+						print "split!", X, "->", Xs
+						anySplit = True
+						P2 += Xs
+						break
+				else:
+					P2.append(X)
+			P = P2
 
+		print P
 		# P has the partition (new elements), we have to translate 
 		# the new indexes, the transitions, initial and finals
+		newIndex = dict()
+		for index in xrange(len(P)):
+			for state in P[index]:
+				newIndex[state] = index
+		print newIndex
+		newFinals = list(set([newIndex[state] for state in F]))
+		newInitial = newIndex[self.initial]
+		newTransition = dict((newIndex[state], dict()) for state in reachables)
+		for state in reachables:
+			for letter in self.transition[state]:
+				newTransition[newIndex[state]][letter] = newIndex[self.transition[state][letter]]
 
+		return DFA(newTransition, newInitial, newFinals)
 
 def flatten(listoflist):
 	return [item for sublist in listoflist for item in sublist]
@@ -81,6 +119,7 @@ def union(c):
 class NFA(FA):
 
 	def __init__(self, transition, initial, finals):
+		#TODO: check correctness of the the input
 		self.nodes = transition.keys()
 		self.transition = transition
 		self.initial = initial
@@ -134,6 +173,7 @@ class NFA(FA):
 class NFAlambda(FA):
 
 	def __init__(self, transition, initial, finals):
+		#TODO: check correctness of the the input
 		self.nodes = transition.keys()
 		self.transition = transition
 		self.initial = initial
@@ -199,14 +239,17 @@ class NFAlambda(FA):
 		return NFA(d, self.initial, finals)
 
 d = {
-	0: {'0' : [0, 1], '1': [0, 2]},
-	1: {'0' : [3]},
-	2: {'1' : [3]},
-	3: {'0' : [3], '1' : [3]}
+	0: {'0': 3, '1': 1},
+	1: {'0': 2},
+	2: {},
+	3: {'0': 4},
+	4: {}
 }
 
-a = NFA(d, 0, [3]) # (0|1)*(00|11)(0|1)*, i.e. string with 00 or 11
-b = a.toDFA();
+a = DFA(d, 0, [2, 4]) # (1|0)0
+
+b = a.minimize()
+
 
 alphabet = "01"
 
@@ -216,7 +259,7 @@ for length in xrange(MAX_LENGTH+1):
 	for string in product(alphabet, repeat=length):
 		s = ''.join(string)
 		assert(a.accepts(s) == b.accepts(s))
-		if b.accepts(s):
+		if a.accepts(s):
 			print s if len(s) > 0 else "λ"
 
 
