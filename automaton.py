@@ -50,7 +50,7 @@ class DFA(FA):
 		return preimg.values()
 
 	def minimize(self):
-		# first consider only the states reachable from the start (BFS):
+		# Consider only the states reachable from the start (BFS):
 		reachables = set()
 		reachables.add(self.initial)
 		queue = deque([self.initial])
@@ -62,19 +62,17 @@ class DFA(FA):
 					queue.append(neighbour)
 					reachables.add(neighbour)
 		
+		alphabet = set([letter for state in reachables for letter in self.transition[state]])
+		
+		# Refine the partition
+
 		F = [state for state in reachables if self.isFinal(state)]
 		notF = [state for state in reachables if state not in F]
 		P = [notF, F]
 
-		alphabet = set([letter for state in reachables for letter in self.transition[state]])
-		print "alphabet:", alphabet
 		anySplit = True
-		i = 0
 		while anySplit:
 			indexOf = getSublistNumber(P)
-			# print indexOf
-			# print i, ".", P
-			i += 1
 			P2 = []
 			anySplit = False
 			while P:
@@ -85,7 +83,6 @@ class DFA(FA):
 				for letter in alphabet:
 					Xs = self.split(X, indexOf, letter)
 					if len(Xs) > 1:
-						print "split!", X, "->", Xs
 						anySplit = True
 						P2 += Xs
 						break
@@ -93,14 +90,12 @@ class DFA(FA):
 					P2.append(X)
 			P = P2
 
-		print P
-		# P has the partition (new elements), we have to translate 
-		# the new indexes, the transitions, initial and finals
+		# Translate the transitions, initial and finals to the new indexes
+
 		newIndex = dict()
 		for index in xrange(len(P)):
 			for state in P[index]:
 				newIndex[state] = index
-		print newIndex
 		newFinals = list(set([newIndex[state] for state in F]))
 		newInitial = newIndex[self.initial]
 		newTransition = dict((newIndex[state], dict()) for state in reachables)
