@@ -5,21 +5,17 @@ from itertools import product # cartesian product
 from collections import deque
 
 class FA:
-	pass
 
-def getSublistNumber(listoflists):
-	d = dict()
-	for i in xrange(len(listoflists)):
-		for elem in listoflists[i]:
-			d[elem] = i
-	return d
-
+	def accepts(self, s, currentState=None):
+		raise NotImplementedError
 
 class DFA(FA):
 
-	def __init__(self, transition, initial, finals):
-		#TODO: check correctness of the the input
-		self.nodes = transition.keys()
+	def __init__(self, nodes, transition, initial, finals):
+		assert(initial in nodes and	all(n in nodes for n in transition.keys()) and 
+			all(n in nodes for k in transition.keys() for n in transition[k].values()) and
+			all(n in nodes for n in finals))
+		self.nodes = nodes
 		self.transition = transition
 		self.initial = initial
 		self.finals = finals
@@ -36,59 +32,55 @@ class DFA(FA):
 			a, w = s[0], s[1:] # s = aw
 			return a in self.transition[currentState] and self.accepts(w, self.transition[currentState][a])		
 
-	def split(self, X, indexOf, a):
-		# print X, indexOf, a
-		preimg = {}
-		# print indexOf
-		for state in X:
-			# print state, "-",a,"->", self.transition[state].get(a, None)
-			index = indexOf.get(self.transition[state].get(a, None), None)
-			if index not in preimg:
-				preimg[index] = set()
-			preimg[index].add(state)
-		# print preimg
-		return preimg.values()
-
-	def minimize(self):
+	def getReachables(self):
 		# Consider only the states reachable from the start (BFS):
 		reachables = set()
 		reachables.add(self.initial)
 		queue = deque([self.initial])
 		while queue:
 			currentState = queue.popleft()
-			for letter in self.transition[currentState]:
-				neighbour = self.transition[currentState][letter]
+			for symbol in self.transition[currentState]:
+				neighbour = self.transition[currentState][symbol]
 				if neighbour not in reachables:
 					queue.append(neighbour)
 					reachables.add(neighbour)
-		
-		alphabet = set([letter for state in reachables for letter in self.transition[state]])
-		
-		# Refine the partition
+		return list(reachables)
 
-		F = [state for state in reachables if self.isFinal(state)]
-		notF = [state for state in reachables if state not in F]
-		P = [notF, F]
+	def getIndistinguishablePartition(self, reachables):
+		alphabet = set([symbol for state in reachables for symbol in self.transition[state]])
+		
+		distinct = [[False]*len(reachables) for _ in xrange(len(reachables))]
+		index = {}
+		for r in xrange(len(reachables)):
+			index[reachables[r]] = r
 
-		anySplit = True
-		while anySplit:
-			indexOf = getSublistNumber(P)
-			P2 = []
-			anySplit = False
-			while P:
-				X = P.pop()
-				if len(X) <= 1:
-					P2.append(X)
-					continue
-				for letter in alphabet:
-					Xs = self.split(X, indexOf, letter)
-					if len(Xs) > 1:
-						anySplit = True
-						P2 += Xs
-						break
-				else:
-					P2.append(X)
-			P = P2
+		for i in xrange(len(reachables)):
+			for j in xrange(i+1, len(reachables)):
+				distinct[i][j] = self.isFinal(i) != self.isFinal(j)
+		changed = True
+
+		while changed:
+			changed = False
+			for i in xrange(len(reachables)):
+				for j in xrange(i+1, len(reachables)):
+					if not distinct[i][j]:
+						for symbol in alphabet:
+							trI = self.transition[reachables[i]].get(symbol, -1)
+							trJ = self.transition[reachables[j]].get(symbol, -1)
+							if trI == -1 or trJ == -1:
+								if trI != trJ: # if only one of them is undefined on transition with symbol
+									distinct[i][j] = True
+									changed = True
+							elif distinct[index[trI]][index[trJ]]:
+								distinct[i][j] = True
+								changed = True
+		
+		return partitionFromDistinctTable(reachables, distinct)
+
+	def minimize(self):
+		reachables = self.getReachables()
+
+		P = self.getIndistinguishablePartition(reachables)
 
 		# Translate the transitions, initial and finals to the new indexes
 
@@ -96,14 +88,37 @@ class DFA(FA):
 		for index in xrange(len(P)):
 			for state in P[index]:
 				newIndex[state] = index
-		newFinals = list(set([newIndex[state] for state in F]))
+		newFinals = list(set([newIndex[state] for state in reachables if self.isFinal(state)]))
 		newInitial = newIndex[self.initial]
 		newTransition = dict((newIndex[state], dict()) for state in reachables)
 		for state in reachables:
-			for letter in self.transition[state]:
-				newTransition[newIndex[state]][letter] = newIndex[self.transition[state][letter]]
+			for symbol in self.transition[state]:
+				newTransition[newIndex[state]][symbol] = newIndex[self.transition[state][symbol]]
 
-		return DFA(newTransition, newInitial, newFinals)
+		return DFA(newTransition.keys(), newTransition, newInitial, newFinals)
+
+def partitionFromDistinctTable(reachables, distinct):
+	parent = [i for i in xrange(len(reachables))]
+	for i in xrange(len(reachables)):
+		for j in xrange(i+1, len(reachables)):
+			if not distinct[i][j]:
+				# merge class i and class j
+				classI = parent[i]
+				classJ = parent[j]
+				newClass = min(classI, classJ)
+				for k in xrange(len(reachables)):
+					if parent[k] in (classI, classJ):
+						parent[k] = newClass
+	P = []
+	for i in xrange(len(reachables)):
+		if i == parent[i]:
+			indistinguishableClass = [reachables[i]]
+			for j in xrange(i+1, len(reachables)):
+				if parent[j] == i:
+					indistinguishableClass.append(reachables[j])
+			P += [indistinguishableClass]
+	return P
+
 
 def flatten(listoflist):
 	return [item for sublist in listoflist for item in sublist]
@@ -113,9 +128,13 @@ def union(c):
 
 class NFA(FA):
 
-	def __init__(self, transition, initial, finals):
-		#TODO: check correctness of the the input
-		self.nodes = transition.keys()
+	def __init__(self, nodes, transition, initial, finals):
+		assert(initial in nodes and
+			all(n in nodes for n in transition.keys()) and
+			all(n in nodes for k in transition.keys() for c in transition[k].values() for n in c) and
+			all(n in nodes for n in finals)
+			)
+		self.nodes = nodes
 		self.transition = transition
 		self.initial = initial
 		self.finals = finals
@@ -149,13 +168,13 @@ class NFA(FA):
 			next = {}
 			for state in currentStates:
 				T = self.transition[state]
-				for letter in T:
-					if letter not in next:
-						next[letter] = set()
-					next[letter] |= set(T[letter])
-			for letter in next:
-				nextState = tuple(next[letter])
-				d[currentStates][letter] = nextState
+				for symbol in T:
+					if symbol not in next:
+						next[symbol] = set()
+					next[symbol] |= set(T[symbol])
+			for symbol in next:
+				nextState = tuple(next[symbol])
+				d[currentStates][symbol] = nextState
 				if nextState not in seen:
 					queue.append(nextState)
 					seen.add(nextState)
@@ -163,13 +182,17 @@ class NFA(FA):
 		for states in d:
 			if self.anyFinal(states):
 				finals.append(states)
-		return DFA(d, initial, finals)
+		return DFA(d.keys(), d, initial, finals)
 
 class NFAlambda(FA):
 
-	def __init__(self, transition, initial, finals):
-		#TODO: check correctness of the the input
-		self.nodes = transition.keys()
+	def __init__(self, nodes, transition, initial, finals):
+		assert(initial in nodes and
+			all(n in nodes for n in transition.keys()) and
+			all(n in nodes for k in transition.keys() for c in transition[k].values() for n in c) and
+			all(n in nodes for n in finals)
+			)
+		self.nodes = nodes
 		self.transition = transition
 		self.initial = initial
 		self.finals = finals
@@ -217,13 +240,13 @@ class NFAlambda(FA):
 			stateLambdaClosure = self.lambdaClosure(state)
 			reached = {}
 			for extstate in stateLambdaClosure:
-				for letter in self.transition[extstate]:
-					if letter != "λ":
-						if letter not in reached:
-							reached[letter] = []
-						reached[letter] += self.transition[extstate][letter]
-			for letter in reached:
-				reached[letter] = self.lambdaClosureOfSet(reached[letter])
+				for symbol in self.transition[extstate]:
+					if symbol != "λ":
+						if symbol not in reached:
+							reached[symbol] = []
+						reached[symbol] += self.transition[extstate][symbol]
+			for symbol in reached:
+				reached[symbol] = self.lambdaClosureOfSet(reached[symbol])
 			d[state] = reached
 
 		finals = self.finals[:]
@@ -231,24 +254,21 @@ class NFAlambda(FA):
 		if self.anyFinal(self.lambdaClosure(self.initial)):
 			finals.append(self.initial)
 
-		return NFA(d, self.initial, finals)
+		return NFA(d.keys(), d, self.initial, finals)
 
 d = {
-	0: {'0': 3, '1': 1},
-	1: {'0': 2},
-	2: {},
-	3: {'0': 4},
-	4: {}
+	0: {'0' : [0], 'λ': [1]},
+	1: {'1' : [1], 'λ': [2]},
+	2: {'2' : [2]}
 }
 
-a = DFA(d, 0, [2, 4]) # (1|0)0
+a = NFAlambda(d.keys(), d, 0, [2]) # 0*1*2*
 
-b = a.minimize()
-
+b = a.toNFA().toDFA().minimize()
 
 alphabet = "01"
 
-MAX_LENGTH = 5
+MAX_LENGTH = 10
 print "Accepted strings up to length %d:" % MAX_LENGTH
 for length in xrange(MAX_LENGTH+1):
 	for string in product(alphabet, repeat=length):
@@ -256,6 +276,3 @@ for length in xrange(MAX_LENGTH+1):
 		assert(a.accepts(s) == b.accepts(s))
 		if a.accepts(s):
 			print s if len(s) > 0 else "λ"
-
-
-
